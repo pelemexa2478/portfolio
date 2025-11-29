@@ -1,0 +1,7 @@
+<Files "messages.txt">
+    Order allow,deny
+    Deny from all
+</Files>
+
+AddHandler application/x-httpd-php .php
+
