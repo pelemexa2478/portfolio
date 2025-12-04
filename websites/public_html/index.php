@@ -1,6 +1,18 @@
-<?php include 'header.php'; ?>
-<body>
-<link rel="stylesheet" href="style.css">
+<?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/config.php';
+
+if (isset($_GET['panel']) && $_GET['panel'] === ADMIN_PANEL_QUERY) {
+    define('ADMIN_ENTRY', true);
+    require __DIR__ . '/admin.php';
+    exit;
+}
+
+$portfolioItems = loadPortfolioItems();
+
+include 'header.php';
+?>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.5.7/jquery.fancybox.min.css" />
 <script src="https://code.jquery.com/jquery-3.4.1.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.5.7/jquery.fancybox.min.js"></script>
@@ -28,6 +40,138 @@ $(document).ready(function() {
         if (activeSection) {
             $('.nav-link[href="' + activeSection + '"]').addClass('active');
         }
+    }
+
+    function markVideoOrientation(videoElement) {
+        if (!videoElement || !videoElement.videoWidth || !videoElement.videoHeight) {
+            return;
+        }
+
+        var isPortrait = videoElement.videoHeight > videoElement.videoWidth;
+        var $card = $(videoElement).closest('.video-card');
+
+        if ($card.length) {
+            $card.toggleClass('is-portrait', isPortrait);
+        }
+    }
+
+    function loadPortfolioVideo(videoElement) {
+        if (!videoElement) {
+            return;
+        }
+
+        var $video = $(videoElement);
+        if ($video.data('videoLoaded')) {
+            return;
+        }
+
+        var source = $video.data('video-src');
+        if (!source) {
+            return;
+        }
+
+        videoElement.src = source;
+        videoElement.load();
+        $video.data('videoLoaded', true);
+        videoElement.dataset.loaded = 'true';
+
+        if (videoElement.readyState >= 1) {
+            markVideoOrientation(videoElement);
+        } else {
+            videoElement.addEventListener('loadedmetadata', function handleMeta() {
+                markVideoOrientation(videoElement);
+            }, { once: true });
+        }
+
+        videoElement.addEventListener('loadeddata', function handleLoaded() {
+            if ($video.data('loop')) {
+                videoElement.loop = true;
+            }
+            if ($video.data('autoplay')) {
+                var playPromise = videoElement.play();
+                if (playPromise && playPromise.catch) {
+                    playPromise.catch(function() {});
+                }
+            }
+        }, { once: true });
+    }
+
+    function initPortfolioVideoLoading() {
+        var videos = document.querySelectorAll('.portfolio-item video[data-video-src]');
+        if (!videos.length) {
+            return;
+        }
+
+        if ('IntersectionObserver' in window) {
+            var observer = new IntersectionObserver(function(entries) {
+                entries.forEach(function(entry) {
+                    if (entry.isIntersecting) {
+                        loadPortfolioVideo(entry.target);
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, { threshold: 0.4 });
+
+            Array.prototype.forEach.call(videos, function(video) {
+                observer.observe(video);
+            });
+        } else {
+            Array.prototype.forEach.call(videos, function(video) {
+                loadPortfolioVideo(video);
+            });
+        }
+    }
+
+    function initPortfolioDescriptionInteractions() {
+        var prefersTouch = window.matchMedia('(hover: none)').matches;
+        if (!prefersTouch) {
+            return;
+        }
+
+        var $grid = $('.block-img');
+        if (!$grid.length) {
+            return;
+        }
+
+        var activeItem = null;
+
+        function hideActiveDescription() {
+            if (activeItem) {
+                activeItem.removeClass('show-description');
+                activeItem = null;
+            }
+        }
+
+        $grid.on('click', '.portfolio-info-chip', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            var $item = $(this).closest('.portfolio-item');
+            var hasDescription = $item.data('has-description') === true || $item.data('has-description') === 'true';
+            if (!hasDescription) {
+                hideActiveDescription();
+                return;
+            }
+
+            if (!$item.hasClass('show-description')) {
+                hideActiveDescription();
+                $item.addClass('show-description');
+                activeItem = $item;
+            } else {
+                hideActiveDescription();
+            }
+        });
+
+        $(document).on('click touchstart', function(e) {
+            if (!activeItem) {
+                return;
+            }
+
+            var $target = $(e.target);
+            if ($target.closest('.portfolio-item').get(0) !== activeItem.get(0)) {
+                hideActiveDescription();
+            }
+        });
     }
 
     $(window).on('scroll', function() {
@@ -71,6 +215,39 @@ $(document).ready(function() {
         }
         return false;
     });
+
+    $('.portfolio-filter .filter-btn').on('click', function() {
+        var filter = $(this).data('filter');
+
+        $('.portfolio-filter .filter-btn').removeClass('active');
+        $(this).addClass('active');
+
+        $('.block-img .portfolio-item').each(function() {
+            var $item = $(this);
+            var category = $item.data('category');
+            var videoElement;
+
+            if (filter === 'all' || category === filter) {
+                $item.removeClass('hidden');
+                videoElement = $item.find('video[data-video-src]').get(0);
+                if (videoElement) {
+                    loadPortfolioVideo(videoElement);
+                }
+            } else {
+                $item.addClass('hidden');
+                videoElement = $item.find('video').get(0);
+                if (videoElement) {
+                    videoElement.pause();
+                    try {
+                        videoElement.currentTime = 0;
+                    } catch (e) {}
+                }
+            }
+        });
+    });
+
+    initPortfolioVideoLoading();
+    initPortfolioDescriptionInteractions();
 
     $(window).trigger('scroll');
 
@@ -118,7 +295,6 @@ $(document).ready(function() {
     });
 });
 </script>
-</body>
 <main>
     <section class="intro">
         <p style="font-size: 20px;">👋🏻 ПРИВЕТСТВУЮ, Я</p>
@@ -205,27 +381,76 @@ $(document).ready(function() {
     </div>
 
     <h3 class="skills-title">Портфолио</h3>
+    <div class="portfolio-filter" role="group" aria-label="Фильтр работ">
+        <button type="button" class="filter-btn active" data-filter="all">Все работы</button>
+        <button type="button" class="filter-btn" data-filter="sites">Сайты</button>
+        <button type="button" class="filter-btn" data-filter="games">Игры</button>
+        <button type="button" class="filter-btn" data-filter="other">Прочее</button>
+    </div>
     <div class="block-img" id="portfolio">
-        <a href="img/1.png" data-fancybox="gallery">
-            <img src="img/1mini.png"/>
-            <div class="portfolio-overlay">Подробнее</div>
-        </a>
-        <a href="img/2.png" data-fancybox="gallery">
-            <img src="img/2mini.png"/>
-            <div class="portfolio-overlay">Подробнее</div>
-        </a>
-        <a href="img/3.png" data-fancybox="gallery">
-            <img src="img/3mini.png"/>
-            <div class="portfolio-overlay">Подробнее</div>
-        </a>
-        <a href="img/4.png" data-fancybox="gallery">
-            <img src="img/4mini.png"/>
-            <div class="portfolio-overlay">Подробнее</div>
-        </a>
-        <a href="img/drivingschool.png" data-fancybox="gallery">
-            <img src="img/drivingschool-small.png"/>
-            <div class="portfolio-overlay">Подробнее</div>
-        </a>
+        <?php if (empty($portfolioItems)): ?>
+            <div class="portfolio-empty">
+                <p>Здесь пока нет работ. Добавьте первую через панель управления.</p>
+            </div>
+        <?php else: ?>
+            <?php foreach ($portfolioItems as $item): ?>
+                <?php
+                    $type = $item['type'] ?? 'image';
+                    $category = htmlspecialchars($item['category'] ?? 'other', ENT_QUOTES, 'UTF-8');
+                    $title = htmlspecialchars($item['title'] ?? 'Работа', ENT_QUOTES, 'UTF-8');
+                    $overlayText = htmlspecialchars(
+                        $item['overlay'] ?? ($type === 'video' ? 'Смотреть игру' : 'Подробнее'),
+                        ENT_QUOTES,
+                        'UTF-8'
+                    );
+                    $fullSource = htmlspecialchars($item['full'] ?? '', ENT_QUOTES, 'UTF-8');
+                    $thumbSourceRaw = $item['thumb'] ?? $item['full'] ?? '';
+                    $thumbSource = htmlspecialchars($thumbSourceRaw ?? '', ENT_QUOTES, 'UTF-8');
+                    $dataThumbAttr = $thumbSource ? ' data-thumb="' . $thumbSource . '"' : '';
+                    $descriptionRaw = trim((string)($item['description'] ?? ''));
+                    $hasDescription = $descriptionRaw !== '';
+                    $descriptionEscaped = htmlspecialchars($descriptionRaw, ENT_QUOTES, 'UTF-8');
+                    $descriptionHtml = $hasDescription ? nl2br($descriptionEscaped) : '';
+                    $descriptionAttr = ' data-has-description="' . ($hasDescription ? 'true' : 'false') . '"';
+                ?>
+                <?php if ($type === 'video'): ?>
+                    <a href="<?= $fullSource; ?>" data-fancybox="gallery" data-type="video" class="portfolio-item video-card" data-category="<?= $category; ?>"<?= $dataThumbAttr; ?><?= $descriptionAttr; ?>>
+                        <video
+                            class="portfolio-video"
+                            data-video-src="<?= $fullSource; ?>"
+                            data-autoplay="<?= !empty($item['autoplay']) ? 'true' : 'false'; ?>"
+                            data-loop="<?= !empty($item['loop']) ? 'true' : 'false'; ?>"
+                            muted
+                            playsinline
+                            preload="none"
+                            <?= $thumbSource ? 'poster="' . $thumbSource . '"' : ''; ?>
+                        ></video>
+                        <div class="portfolio-overlay"><?= $overlayText; ?></div>
+                        <?php if ($hasDescription): ?>
+                            <button class="portfolio-info-chip" type="button" aria-label="Описание работы">
+                                i
+                            </button>
+                            <div class="portfolio-description" role="presentation">
+                                <div class="portfolio-description__inner"><?= $descriptionHtml; ?></div>
+                            </div>
+                        <?php endif; ?>
+                    </a>
+                <?php else: ?>
+                    <a href="<?= $fullSource; ?>" data-fancybox="gallery" class="portfolio-item" data-category="<?= $category; ?>"<?= $dataThumbAttr; ?><?= $descriptionAttr; ?>>
+                        <img src="<?= $thumbSource; ?>" alt="<?= $title; ?>" loading="lazy"/>
+                        <div class="portfolio-overlay"><?= $overlayText; ?></div>
+                        <?php if ($hasDescription): ?>
+                            <button class="portfolio-info-chip" type="button" aria-label="Описание работы">
+                                i
+                            </button>
+                            <div class="portfolio-description" role="presentation">
+                                <div class="portfolio-description__inner"><?= $descriptionHtml; ?></div>
+                            </div>
+                        <?php endif; ?>
+                    </a>
+                <?php endif; ?>
+            <?php endforeach; ?>
+        <?php endif; ?>
     </div>
 
     <h3 class="skills-title">Связаться со мной</h3>

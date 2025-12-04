@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "Bolshoi Ticket Autobooker",
+  "description": "Мониторинг спектаклей Большого театра и автоматический выбор мест.",
+  "version": "0.1.0",
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab",
+    "tabs",
+    "alarms",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "https://ticket.bolshoi.ru/*"
+  ],
+  "background": {
+    "service_worker": "background/worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup/popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://ticket.bolshoi.ru/shows*"
+      ],
+      "js": [
+        "content-scripts/shows.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://ticket.bolshoi.ru/show/*"
+      ],
+      "js": [
+        "content-scripts/show-detail.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://ticket.bolshoi.ru/checkout*"
+      ],
+      "js": [
+        "content-scripts/checkout.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_ui": {
+    "page": "popup/popup.html",
+    "open_in_tab": true
+  }
+}
+
